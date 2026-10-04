@@ -1,0 +1,426 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Blood Sugar Tracker - Prototype</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body { 
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; 
+            margin: 0; padding: 0; background-color: #f4f7f6; color: #333; 
+        }
+        .container { 
+            max-width: 480px; margin: 0 auto; background: #fff; height: 100vh; position: relative; box-shadow: 0 0 15px rgba(0,0,0,0.1); display: flex; flex-direction: column; overflow: hidden;
+        }
+        header { 
+            background-color: #4A90E2; color: white; padding: 1.2rem; text-align: center; font-size: 1.2rem; font-weight: bold; position: relative; flex-shrink: 0;
+        }
+        .back-btn {
+            position: absolute; left: 1rem; top: 50%; transform: translateY(-50%); background: none; border: none; color: white; font-size: 1rem; cursor: pointer; font-weight: bold; display: none;
+        }
+        .view { padding: 1.5rem; flex: 1; overflow-y: auto; display: none; display: flex; flex-direction: column; }
+        .view.active { display: flex; }
+        
+        /* Chart specific */
+        .chart-card { background: white; padding: 1rem; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); margin-bottom: 2rem; border: 1px solid #e1e8ed; flex-shrink: 0; }
+        .chart-layout { display: flex; height: 220px; align-items: stretch; }
+        .chart-y-axis { width: 30px; flex-shrink: 0; position: relative; z-index: 2; background: white; } /* Reduced width to bring numbers closer to the chart */
+        .chart-scroll-wrapper { flex: 1; overflow-x: auto; overflow-y: hidden; position: relative; }
+        .chart-inner { width: 900px; height: 100%; } /* Wide enough for 30 days */
+        
+        .filter-group { display: flex; gap: 0.5rem; margin-bottom: 1rem; justify-content: center; }
+        .filter-btn { padding: 0.4rem 0.8rem; border: 1px solid #ddd; border-radius: 20px; background: #fff; font-size: 0.85rem; font-weight: bold; cursor: pointer; transition: all 0.2s; opacity: 0.5; }
+        .filter-btn.active { opacity: 1; color: white; border-color: transparent; }
+        .filter-btn[data-type="fasting"].active { background: #4A90E2; }
+        .filter-btn[data-type="premeal"].active { background: #50E3C2; }
+        .filter-btn[data-type="postmeal"].active { background: #F5A623; }
+
+        /* List specific */
+        .section-header { display: flex; justify-content: space-between; align-items: baseline; border-bottom: 2px solid #f4f7f6; padding-bottom: 0.5rem; margin-bottom: 0.5rem; flex-shrink: 0;}
+        .section-header h3 { margin: 0; font-size: 1.1rem; color: #555; }
+        .btn-text { background: none; border: none; color: #4A90E2; font-weight: bold; cursor: pointer; font-size: 0.9rem; padding: 0; }
+        
+        #historyRecordList { flex: 1; overflow: hidden; display: flex; flex-direction: column; } /* Changed overflow-y to hidden to prevent scrolling */
+        .record-item { display: flex; justify-content: space-between; align-items: center; padding: 0 0.5rem; border-bottom: 1px solid #f0f0f0; height: 75px; box-sizing: border-box; flex-shrink: 0; } /* Fixed height */
+        .record-item:last-child { border-bottom: none; }
+        .record-val { font-size: 1.5rem; font-weight: bold; color: #4A90E2; }
+        .record-info { font-size: 0.85rem; color: #888; margin-top: 4px; }
+        .tag { display: inline-block; padding: 4px 8px; border-radius: 6px; font-size: 0.8rem; font-weight: bold; }
+        .tag-fasting { background: #e8f0fe; color: #4A90E2; }
+        .tag-premeal { background: #e6f9f5; color: #2C9E82; }
+        .tag-postmeal { background: #fef4e6; color: #D68910; }
+        
+        /* Pagination */
+        .pagination { display: flex; justify-content: center; align-items: center; margin-top: 1rem; gap: 1rem; flex-shrink: 0; padding-bottom: 1rem; }
+        .page-btn { padding: 0.5rem 1rem; border: 1px solid #ddd; background: white; border-radius: 8px; cursor: pointer; font-weight: bold; }
+        .page-btn:disabled { color: #ccc; cursor: not-allowed; }
+        .page-info { font-size: 0.9rem; font-weight: bold; color: #555; }
+
+        .fab { position: absolute; bottom: 2rem; right: 1.5rem; width: 64px; height: 64px; background-color: #4A90E2; color: white; border-radius: 50%; display: flex; justify-content: center; align-items: center; font-size: 2.5rem; box-shadow: 0 4px 10px rgba(74,144,226,0.4); cursor: pointer; border: none; transition: transform 0.2s; z-index: 5; }
+        .fab:hover { transform: scale(1.05); }
+
+        #historyView { display: none; }
+        #historyView.active { display: flex; flex-direction: column; }
+        #dashboardView { display: none; }
+        #dashboardView.active { display: flex; flex-direction: column; }
+
+        /* Modal (Bottom Sheet style) */
+        .modal-overlay { 
+            display: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%; 
+            background: rgba(0,0,0,0.6); justify-content: center; align-items: flex-end; z-index: 10;
+        }
+        .modal { 
+            background: white; width: 100%; border-radius: 20px 20px 0 0; padding: 2rem 1.5rem; 
+            box-sizing: border-box; animation: slideUp 0.3s ease-out; 
+        }
+        @keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
+        
+        .form-group { margin-bottom: 1.5rem; }
+        .form-group label { display: block; margin-bottom: 0.5rem; font-weight: 600; color: #444; font-size: 0.95rem; }
+        .form-group input[type="number"], .form-group input[type="datetime-local"], .form-group textarea { 
+            width: 100%; padding: 1rem; border: 1px solid #ddd; border-radius: 10px; box-sizing: border-box; font-size: 1rem; background: #fafafa;
+        }
+        .form-group input[type="number"] { font-size: 2rem; text-align: center; font-weight: bold; color: #333; }
+        
+        .tag-group { display: flex; gap: 0.5rem; }
+        .tag-btn-modal { flex: 1; padding: 0.8rem; text-align: center; border: 1px solid #ddd; border-radius: 10px; cursor: pointer; background: #fff; font-weight: 500; color: #666; transition: all 0.2s; }
+        .tag-btn-modal.active { background: #4A90E2; color: white; border-color: #4A90E2; }
+        
+        .btn-group { display: flex; gap: 1rem; margin-top: 1rem; }
+        .btn { flex: 1; padding: 1.2rem; border: none; border-radius: 12px; font-size: 1.1rem; cursor: pointer; font-weight: bold; }
+        .btn-cancel { background: #f0f0f0; color: #555; }
+        .btn-save { background: #4A90E2; color: white; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <button class="back-btn" id="backBtn">◀ 뒤로</button>
+            <span id="headerTitle">Blood Sugar Tracker</span>
+        </header>
+        
+        <!-- Dashboard View -->
+        <div class="view active" id="dashboardView">
+            <div class="chart-card">
+                <div class="filter-group" id="chartFilters">
+                    <button class="filter-btn active" data-type="fasting" data-index="0">공복</button>
+                    <button class="filter-btn active" data-type="premeal" data-index="1">식전</button>
+                    <button class="filter-btn active" data-type="postmeal" data-index="2">식후</button>
+                </div>
+                <div class="chart-layout">
+                    <div class="chart-y-axis">
+                        <canvas id="yAxisChart"></canvas>
+                    </div>
+                    <div class="chart-scroll-wrapper" id="chartScroll">
+                        <div class="chart-inner">
+                            <canvas id="sugarChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div style="flex:1;">
+                <div class="section-header">
+                    <h3>최근 기록</h3>
+                    <button class="btn-text" id="viewAllBtn">전체보기 &gt;</button>
+                </div>
+                <div id="recentRecordList"></div>
+            </div>
+        </div>
+
+        <!-- History View (Pagination) -->
+        <div class="view" id="historyView">
+            <div class="section-header">
+                <h3>전체 기록</h3>
+            </div>
+            <div id="historyRecordList"></div>
+            
+            <div class="pagination">
+                <button class="page-btn" id="prevPageBtn">이전</button>
+                <span class="page-info" id="pageInfo">1 / 1</span>
+                <button class="page-btn" id="nextPageBtn">다음</button>
+            </div>
+        </div>
+
+        <button class="fab" id="addBtn">+</button>
+
+        <!-- Record Modal -->
+        <div class="modal-overlay" id="modalOverlay">
+            <div class="modal">
+                <h3 style="margin-top:0; margin-bottom:1.5rem; text-align:center; font-size:1.3rem;">혈당 기록 추가</h3>
+                
+                <div class="form-group">
+                    <label>혈당 수치 (mg/dL) *</label>
+                    <input type="number" id="sugarVal" placeholder="100" required>
+                </div>
+                
+                <div class="form-group">
+                    <label>측정 시간</label>
+                    <input type="datetime-local" id="measureTime">
+                </div>
+                
+                <div class="form-group">
+                    <label>상태 태그 (선택)</label>
+                    <div class="tag-group" id="tagGroup">
+                        <div class="tag-btn-modal" data-value="공복">공복</div>
+                        <div class="tag-btn-modal" data-value="식전">식전</div>
+                        <div class="tag-btn-modal" data-value="식후">식후</div>
+                    </div>
+                </div>
+                
+                <div class="form-group">
+                    <label>메모 (선택)</label>
+                    <textarea id="memo" rows="2" placeholder="간단한 메모 (선택사항)"></textarea>
+                </div>
+                
+                <div class="btn-group">
+                    <button class="btn btn-cancel" id="cancelBtn">취소</button>
+                    <button class="btn btn-save" id="saveBtn">저장</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- Modal Interactions ---
+        function setCurrentTime() {
+            const now = new Date();
+            now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
+            document.getElementById('measureTime').value = now.toISOString().slice(0,16);
+        }
+
+        const addBtn = document.getElementById('addBtn');
+        const modalOverlay = document.getElementById('modalOverlay');
+        const cancelBtn = document.getElementById('cancelBtn');
+        
+        addBtn.addEventListener('click', () => {
+            setCurrentTime();
+            document.getElementById('sugarVal').value = '';
+            document.getElementById('memo').value = '';
+            document.querySelectorAll('.tag-btn-modal').forEach(btn => btn.classList.remove('active'));
+            modalOverlay.style.display = 'flex';
+            setTimeout(() => document.getElementById('sugarVal').focus(), 100);
+        });
+        
+        cancelBtn.addEventListener('click', () => {
+            modalOverlay.style.display = 'none';
+        });
+
+        document.querySelectorAll('.tag-btn-modal').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const wasActive = e.target.classList.contains('active');
+                document.querySelectorAll('.tag-btn-modal').forEach(b => b.classList.remove('active'));
+                if (!wasActive) {
+                    e.target.classList.add('active');
+                }
+            });
+        });
+
+        // --- Dummy Data ---
+        const allRecords = [
+            { val: 142, time: '2026-10-06 13:30', tag: '식후', class: 'tag-postmeal', memo: '점심 식후' },
+            { val: 100, time: '2026-10-06 08:00', tag: '공복', class: 'tag-fasting', memo: '기상 직후' },
+            { val: 155, time: '2026-10-05 19:20', tag: '식후', class: 'tag-postmeal', memo: '저녁 회식' },
+            { val: 112, time: '2026-10-05 18:00', tag: '식전', class: 'tag-premeal', memo: '' },
+            { val: 95,  time: '2026-10-05 07:30', tag: '공복', class: 'tag-fasting', memo: '' },
+            { val: 138, time: '2026-10-04 12:50', tag: '식후', class: 'tag-postmeal', memo: '가벼운 샌드위치' },
+            { val: 105, time: '2026-10-04 11:30', tag: '식전', class: 'tag-premeal', memo: '' },
+            { val: 98,  time: '2026-10-04 08:10', tag: '공복', class: 'tag-fasting', memo: '' },
+            { val: 145, time: '2026-10-03 19:00', tag: '식후', class: 'tag-postmeal', memo: '삼겹살' },
+            { val: 110, time: '2026-10-03 18:00', tag: '식전', class: 'tag-premeal', memo: '' },
+            { val: 102, time: '2026-10-03 08:00', tag: '공복', class: 'tag-fasting', memo: '' },
+            { val: 160, time: '2026-10-02 20:00', tag: '식후', class: 'tag-postmeal', memo: '야식' },
+            { val: 97,  time: '2026-10-02 07:45', tag: '공복', class: 'tag-fasting', memo: '' },
+            { val: 125, time: '2026-10-01 12:30', tag: '식전', class: 'tag-premeal', memo: '' }
+        ];
+
+        function renderItem(r) {
+            return `
+                <div class="record-item">
+                    <div>
+                        <div class="record-val">${r.val} <span style="font-size:0.9rem; color:#999; font-weight:normal;">mg/dL</span></div>
+                        <div class="record-info">${r.time}</div>
+                    </div>
+                    <div style="text-align:right;">
+                        <div class="tag ${r.class}">${r.tag}</div>
+                        ${r.memo ? `<div style="font-size:0.8rem; color:#888; margin-top:6px; max-width: 150px; text-overflow: ellipsis; white-space: nowrap; overflow: hidden;">${r.memo}</div>` : ''}
+                    </div>
+                </div>
+            `;
+        }
+        document.getElementById('recentRecordList').innerHTML = allRecords.slice(0, 3).map(renderItem).join('');
+
+        // --- Chart Configuration ---
+        const labels = [];
+        const fastingData = [];
+        const premealData = [];
+        const postmealData = [];
+        let today = new Date('2026-10-06');
+        for(let i = 29; i >= 0; i--) {
+            let d = new Date(today);
+            d.setDate(d.getDate() - i);
+            labels.push((d.getMonth()+1)+'/'+d.getDate());
+            fastingData.push(Math.random() > 0.2 ? Math.floor(Math.random() * 20 + 85) : null);
+            premealData.push(Math.random() > 0.4 ? Math.floor(Math.random() * 30 + 100) : null);
+            postmealData.push(Math.random() > 0.3 ? Math.floor(Math.random() * 40 + 130) : null);
+        }
+
+        const chartCommonOptions = {
+            responsive: true, maintainAspectRatio: false,
+            plugins: { legend: { display: false } } // Ensures default Chart.js legend is completely hidden
+        };
+
+        // 1. Fixed Y-Axis Chart
+        new Chart(document.getElementById('yAxisChart').getContext('2d'), {
+            type: 'line',
+            data: { labels: [''], datasets: [] }, // Empty dataset
+            options: {
+                ...chartCommonOptions,
+                plugins: { legend: { display: false }, tooltip: { enabled: false } },
+                scales: {
+                    x: {
+                        grid: { display: false }, border: { display: false },
+                        ticks: { color: 'transparent' } // Keep label space for vertical alignment
+                    },
+                    y: { 
+                        suggestedMin: 70, suggestedMax: 190, 
+                        grid: { display: false }, border: { display: false },
+                        ticks: { padding: 0, font: { size: 11 }, align: 'end', crossAlign: 'far', mirror: true } // Removed padding and used mirror to pull text inward
+                    }
+                },
+                layout: { padding: 0 }
+            }
+        });
+
+        // 2. Main Scrolling Chart
+        const averageLinePlugin = {
+            id: 'averageLine',
+            beforeDraw: (chart) => {
+                const ctx = chart.ctx;
+                const yAxis = chart.scales.y;
+                const xAxis = chart.scales.x;
+                const averageValue = 120; // Example 30-day average
+                const yPixel = yAxis.getPixelForValue(averageValue);
+                
+                ctx.save();
+                ctx.beginPath();
+                ctx.moveTo(xAxis.left, yPixel);
+                ctx.lineTo(xAxis.right, yPixel);
+                ctx.lineWidth = 2;
+                ctx.strokeStyle = 'rgba(231, 76, 60, 0.6)';
+                ctx.setLineDash([5, 5]);
+                ctx.stroke();
+
+                ctx.fillStyle = 'rgba(231, 76, 60, 0.8)';
+                ctx.font = 'bold 11px sans-serif';
+                ctx.fillText(`30일 평균 (${averageValue})`, xAxis.left + 5, yPixel - 8);
+                ctx.restore();
+            }
+        };
+
+        const mainChart = new Chart(document.getElementById('sugarChart').getContext('2d'), {
+            type: 'line',
+            data: {
+                labels: labels,
+                datasets: [
+                    { label: '공복', data: fastingData, borderColor: '#4A90E2', backgroundColor: '#4A90E2', tension: 0.3, spanGaps: true },
+                    { label: '식전', data: premealData, borderColor: '#50E3C2', backgroundColor: '#50E3C2', tension: 0.3, spanGaps: true },
+                    { label: '식후', data: postmealData, borderColor: '#F5A623', backgroundColor: '#F5A623', tension: 0.3, spanGaps: true }
+                ]
+            },
+            options: {
+                ...chartCommonOptions,
+                plugins: { 
+                    legend: { display: false }, 
+                    tooltip: { mode: 'index', intersect: false } 
+                },
+                scales: {
+                    x: { grid: { display: false }, border: { display: false } },
+                    y: { 
+                        display: false, // Hide Y axis, handled by the fixed canvas
+                        suggestedMin: 70, suggestedMax: 190 
+                    }
+                },
+                layout: { padding: 0 }
+            },
+            plugins: [averageLinePlugin]
+        });
+
+        // Filter Logic (Acts as custom interactive legend)
+        document.querySelectorAll('.filter-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const target = e.target;
+                const index = target.getAttribute('data-index');
+                target.classList.toggle('active');
+                mainChart.setDatasetVisibility(index, target.classList.contains('active'));
+                mainChart.update();
+            });
+        });
+
+        // Initial scroll to most recent
+        window.addEventListener('load', () => {
+            setTimeout(() => {
+                const scroller = document.getElementById('chartScroll');
+                scroller.scrollLeft = scroller.scrollWidth;
+            }, 50);
+        });
+
+        // --- Responsive Pagination Logic ---
+        let itemsPerPage = 5;
+        let currentPage = 1;
+        let totalPages = 1;
+
+        function calculateItemsPerPage() {
+            const listContainer = document.getElementById('historyRecordList');
+            const availableHeight = listContainer.clientHeight;
+            const itemHeight = 75; // strictly matched with CSS .record-item height
+            
+            // Calculate exact fit without overflow
+            itemsPerPage = Math.max(1, Math.floor(availableHeight / itemHeight));
+            totalPages = Math.ceil(allRecords.length / itemsPerPage);
+            currentPage = 1;
+        }
+
+        function renderHistory() {
+            const start = (currentPage - 1) * itemsPerPage;
+            const end = start + itemsPerPage;
+            const pageData = allRecords.slice(start, end);
+            
+            document.getElementById('historyRecordList').innerHTML = pageData.map(renderItem).join('');
+            document.getElementById('pageInfo').innerText = `${currentPage} / ${totalPages}`;
+            
+            document.getElementById('prevPageBtn').disabled = currentPage === 1;
+            document.getElementById('nextPageBtn').disabled = currentPage === totalPages;
+        }
+
+        document.getElementById('prevPageBtn').addEventListener('click', () => { if(currentPage > 1) { currentPage--; renderHistory(); } });
+        document.getElementById('nextPageBtn').addEventListener('click', () => { if(currentPage < totalPages) { currentPage++; renderHistory(); } });
+
+        // --- View Switching ---
+        const dashboardView = document.getElementById('dashboardView');
+        const historyView = document.getElementById('historyView');
+        const backBtn = document.getElementById('backBtn');
+        const headerTitle = document.getElementById('headerTitle');
+
+        document.getElementById('viewAllBtn').addEventListener('click', () => {
+            dashboardView.classList.remove('active');
+            historyView.classList.add('active');
+            backBtn.style.display = 'block';
+            headerTitle.innerText = '모든 기록';
+            
+            // Recalculate based on current screen size now that it's visible
+            calculateItemsPerPage();
+            renderHistory();
+        });
+
+        backBtn.addEventListener('click', () => {
+            historyView.classList.remove('active');
+            dashboardView.classList.add('active');
+            backBtn.style.display = 'none';
+            headerTitle.innerText = 'Blood Sugar Tracker';
+        });
+
+    </script>
+</body>
+</html>
