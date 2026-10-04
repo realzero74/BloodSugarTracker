@@ -78,6 +78,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
     RecordModal.show(
       context,
       initialRecord: record,
+      existingRecords: _records,
       onSave: (updatedRecord) async {
         await widget.recordService.updateRecord(updatedRecord);
         await _loadPage(_currentPage);

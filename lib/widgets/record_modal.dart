@@ -5,17 +5,20 @@ import '../theme/app_theme.dart';
 
 class RecordModal extends StatefulWidget {
   final BloodSugarRecord? initialRecord;
+  final List<BloodSugarRecord>? existingRecords;
   final Future<void> Function(BloodSugarRecord record) onSave;
 
   const RecordModal({
     super.key,
     this.initialRecord,
+    this.existingRecords,
     required this.onSave,
   });
 
   static Future<void> show(
     BuildContext context, {
     BloodSugarRecord? initialRecord,
+    List<BloodSugarRecord>? existingRecords,
     required Future<void> Function(BloodSugarRecord record) onSave,
   }) {
     return showModalBottomSheet(
@@ -24,6 +27,7 @@ class RecordModal extends StatefulWidget {
       backgroundColor: Colors.transparent,
       builder: (context) => RecordModal(
         initialRecord: initialRecord,
+        existingRecords: existingRecords,
         onSave: onSave,
       ),
     );
@@ -60,7 +64,37 @@ class _RecordModalState extends State<RecordModal> {
     super.dispose();
   }
 
+  static const List<String> _tags = ['공복', '운동후', '취침전', '예외'];
+
+  Set<String> _getDisabledTags() {
+    if (widget.existingRecords == null || widget.existingRecords!.isEmpty) {
+      return {};
+    }
+
+    final selectedDateStr = DateFormat('yyyy-MM-dd').format(_selectedTime);
+    final Set<String> disabled = {};
+
+    for (final rec in widget.existingRecords!) {
+      // If editing, skip the record currently being edited
+      if (widget.initialRecord != null && widget.initialRecord!.id != null && rec.id == widget.initialRecord!.id) {
+        continue;
+      }
+      if (rec.tag == null || rec.tag == '예외') {
+        continue;
+      }
+      final recDateStr = DateFormat('yyyy-MM-dd').format(rec.measureTime);
+      if (recDateStr == selectedDateStr) {
+        disabled.add(rec.tag!);
+      }
+    }
+
+    return disabled;
+  }
+
   void _onTagTap(String tag) {
+    final disabledTags = _getDisabledTags();
+    if (disabledTags.contains(tag)) return;
+
     setState(() {
       if (_selectedTag == tag) {
         _selectedTag = null; // toggle off
@@ -69,8 +103,6 @@ class _RecordModalState extends State<RecordModal> {
       }
     });
   }
-
-  static const List<String> _tags = ['공복', '운동후', '취침전', '예외'];
 
   Future<void> _pickDateTime() async {
     final firstDate = DateTime(2000);
@@ -102,6 +134,12 @@ class _RecordModalState extends State<RecordModal> {
         pickedTime.hour,
         pickedTime.minute,
       );
+
+      // If previously selected tag is now disabled on newly picked date, unselect it
+      final disabledTags = _getDisabledTags();
+      if (_selectedTag != null && disabledTags.contains(_selectedTag)) {
+        _selectedTag = null;
+      }
     });
   }
 
@@ -293,44 +331,71 @@ class _RecordModalState extends State<RecordModal> {
                   ),
                 ),
                 const SizedBox(height: 8),
-                Row(
-                  children: _tags.map((tag) {
-                    final isSelected = _selectedTag == tag;
-                    final activeColor = AppTheme.getTagTextColor(tag);
-                    return Expanded(
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 3),
-                        child: InkWell(
-                          onTap: () => _onTagTap(tag),
-                          borderRadius: BorderRadius.circular(10),
-                          child: AnimatedContainer(
-                            duration: const Duration(milliseconds: 150),
-                            padding: const EdgeInsets.symmetric(vertical: 12),
-                            decoration: BoxDecoration(
-                              color: isSelected ? activeColor : Colors.white,
-                              borderRadius: BorderRadius.circular(10),
-                              border: Border.all(
-                                color: isSelected
-                                    ? activeColor
-                                    : const Color(0xFFDDDDDD),
-                              ),
-                            ),
-                            alignment: Alignment.center,
-                            child: Text(
-                              tag,
-                              style: TextStyle(
-                                fontSize: 13,
-                                fontWeight: isSelected
-                                    ? FontWeight.bold
-                                    : FontWeight.w500,
-                                color: isSelected ? Colors.white : const Color(0xFF666666),
+                Builder(
+                  builder: (context) {
+                    final disabledTags = _getDisabledTags();
+                    return Row(
+                      children: _tags.map((tag) {
+                        final isDisabled = disabledTags.contains(tag);
+                        final isSelected = _selectedTag == tag;
+                        final activeColor = AppTheme.getTagTextColor(tag);
+
+                        Color bgColor;
+                        Color borderColor;
+                        Color textColor;
+
+                        if (isDisabled) {
+                          bgColor = const Color(0xFFF1F1F1);
+                          borderColor = const Color(0xFFE2E2E2);
+                          textColor = const Color(0xFFB0B0B0);
+                        } else if (isSelected) {
+                          bgColor = activeColor;
+                          borderColor = activeColor;
+                          textColor = Colors.white;
+                        } else {
+                          bgColor = Colors.white;
+                          borderColor = const Color(0xFFDDDDDD);
+                          textColor = const Color(0xFF666666);
+                        }
+
+                        return Expanded(
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 3),
+                            child: Tooltip(
+                              message: isDisabled ? '해당 날짜에 이미 등록된 태그입니다.' : '',
+                              child: InkWell(
+                                onTap: isDisabled ? null : () => _onTagTap(tag),
+                                borderRadius: BorderRadius.circular(10),
+                                child: AnimatedContainer(
+                                  duration: const Duration(milliseconds: 150),
+                                  padding: const EdgeInsets.symmetric(vertical: 12),
+                                  decoration: BoxDecoration(
+                                    color: bgColor,
+                                    borderRadius: BorderRadius.circular(10),
+                                    border: Border.all(
+                                      color: borderColor,
+                                    ),
+                                  ),
+                                  alignment: Alignment.center,
+                                  child: Text(
+                                    tag,
+                                    style: TextStyle(
+                                      fontSize: 13,
+                                      fontWeight: isSelected
+                                          ? FontWeight.bold
+                                          : FontWeight.w500,
+                                      color: textColor,
+                                      decoration: isDisabled ? TextDecoration.none : null,
+                                    ),
+                                  ),
+                                ),
                               ),
                             ),
                           ),
-                        ),
-                      ),
+                        );
+                      }).toList(),
                     );
-                  }).toList(),
+                  },
                 ),
                 const SizedBox(height: 16),
 

@@ -271,30 +271,113 @@ void main() {
     expect(savedRecord!.tag, '예외');
   });
 
-  testWidgets('RecordModal displays duplicate error message via SnackBar when onSave fails', (tester) async {
+  testWidgets('RecordModal disables already existing tags on selected date and prevents tap', (tester) async {
+    final now = DateTime.now();
+    final existingRecords = [
+      BloodSugarRecord(
+        id: 'rec-1',
+        sugarValue: 95,
+        measureTime: now,
+        tag: '공복',
+      ),
+      BloodSugarRecord(
+        id: 'rec-2',
+        sugarValue: 120,
+        measureTime: now,
+        tag: '취침전',
+      ),
+      BloodSugarRecord(
+        id: 'rec-3',
+        sugarValue: 140,
+        measureTime: now,
+        tag: '예외',
+      ),
+    ];
+
+    BloodSugarRecord? savedRecord;
+
     await tester.pumpWidget(
       createLocalizedApp(
         Scaffold(
           body: RecordModal(
+            existingRecords: existingRecords,
             onSave: (record) async {
-              throw Exception("해당 날짜에 이미 '공복' 기록이 존재합니다. (공복, 운동후, 취침전은 하루에 한 번만 입력 가능합니다)");
+              savedRecord = record;
             },
           ),
         ),
       ),
     );
 
-    // Enter value
-    await tester.enterText(find.byType(TextFormField).first, '108');
-    // Select '공복' tag
+    // Verify all tags rendered
+    expect(find.text('공복'), findsOneWidget);
+    expect(find.text('운동후'), findsOneWidget);
+    expect(find.text('취침전'), findsOneWidget);
+    expect(find.text('예외'), findsOneWidget);
+
+    // '공복' and '취침전' are already used for today, so tapping '공복' should do nothing
     await tester.tap(find.text('공복'));
     await tester.pumpAndSettle();
 
-    // Tap Save button
+    // Enter value and save
+    await tester.enterText(find.byType(TextFormField).first, '100');
+    // Select enabled '운동후' tag
+    await tester.tap(find.text('운동후'));
+    await tester.pumpAndSettle();
+
+    // Now tap Save button
     await tester.tap(find.text('저장'));
     await tester.pumpAndSettle();
 
-    expect(find.textContaining("이미 '공복' 기록이 존재합니다"), findsOneWidget);
+    expect(savedRecord, isNotNull);
+    expect(savedRecord!.sugarValue, 100);
+    expect(savedRecord!.tag, '운동후');
+  });
+
+  testWidgets('RecordModal allows current tag when editing existing record', (tester) async {
+    final now = DateTime.now();
+    final currentRecord = BloodSugarRecord(
+      id: 'rec-1',
+      sugarValue: 95,
+      measureTime: now,
+      tag: '공복',
+    );
+    final existingRecords = [
+      currentRecord,
+      BloodSugarRecord(
+        id: 'rec-2',
+        sugarValue: 120,
+        measureTime: now,
+        tag: '취침전',
+      ),
+    ];
+
+    BloodSugarRecord? savedRecord;
+
+    await tester.pumpWidget(
+      createLocalizedApp(
+        Scaffold(
+          body: RecordModal(
+            initialRecord: currentRecord,
+            existingRecords: existingRecords,
+            onSave: (record) async {
+              savedRecord = record;
+            },
+          ),
+        ),
+      ),
+    );
+
+    // For editing rec-1, '공복' should NOT be disabled, but '취침전' should be disabled
+    // Tapping '취침전' should not change selection
+    await tester.tap(find.text('취침전'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('저장'));
+    await tester.pumpAndSettle();
+
+    expect(savedRecord, isNotNull);
+    expect(savedRecord!.tag, '공복'); // Remains '공복', did not switch to disabled '취침전'
   });
 
   testWidgets('HistoryScreen displays 5 filter buttons (전체, 공복, 운동후, 취침전, 예외) and filters by tag with pageSize 7', (tester) async {

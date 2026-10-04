@@ -60,8 +60,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   void _openAddModal() {
+    final allExisting = <BloodSugarRecord>{..._thirtyDaysRecords, ..._recentRecords}.toList();
     RecordModal.show(
       context,
+      existingRecords: allExisting,
       onSave: (record) async {
         await widget.recordService.createRecord(record);
         await _loadData();
@@ -75,9 +77,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   void _openEditModal(BloodSugarRecord record) {
+    final allExisting = <BloodSugarRecord>{..._thirtyDaysRecords, ..._recentRecords}.toList();
     RecordModal.show(
       context,
       initialRecord: record,
+      existingRecords: allExisting,
       onSave: (updatedRecord) async {
         await widget.recordService.updateRecord(updatedRecord);
         await _loadData();
